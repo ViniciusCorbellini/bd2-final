@@ -1,3 +1,5 @@
+# Atividades
+
 # **1\. Análise de Problemas de Concorrência**
 
 Esta seção detalha o diagnóstico técnico dos conflitos identificados no ambiente distribuído da TechLog.
