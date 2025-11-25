@@ -1,22 +1,26 @@
-1. Análise de Problemas de Concorrência
-1.1. Cenários de Conflito e Causas Raiz
+# **1\. Análise de Problemas de Concorrência**
 
-Inconsistência de Dados (Race Conditions): Ocorre principalmente no cenário de "Atualização Perdida" (Lost Update).
+Esta seção detalha o diagnóstico técnico dos conflitos identificados no ambiente distribuído da TechLog.
 
-Cenário: Dois nós distribuídos leem o saldo de um produto (ex: 1 unidade) simultaneamente. Ambos validam a compra e decrementam o valor.
+## **1.1. Cenários de Conflito e Causas Raiz**
 
-Causa Raiz: Falta de atomicidade entre a leitura e a escrita, agravada pela latência da rede em sistemas distribuídos. O isolamento inadequado permite que transações sobreponham alterações.
+###  **Inconsistência de Dados (Race Conditions)**
 
-Bloqueios Prolongados (Deadlocks):
+**Fenômeno Principal:** "Atualização Perdida" (*Lost Update*).
 
-Cenário: Transações ficam paradas em estado de espera (WAIT) aguardando a liberação de recursos (tabelas de estoque ou pedidos).
+* **O Cenário:** Dois nós distribuídos leem o saldo de um produto (ex: *1 unidade*) simultaneamente. Ambos validam a compra e decrementam o valor, sobrescrevendo a operação um do outro.  
+* **Causa Raiz:** Falta de **atomicidade** entre a leitura e a escrita, agravada pela latência da rede em sistemas distribuídos. O isolamento inadequado permite que transações concorrentes sobreponham alterações.
 
-Causa Raiz: Utilização de Bloqueio Pessimista (Pessimistic Locking) em um ambiente de alta latência. Transações longas retêm os recursos ("trancam" a tabela) enquanto aguardam comunicação de rede, engarrafando todas as requisições seguintes.
+###  **Bloqueios Prolongados (Deadlocks)**
 
-1.2. Impacto na Performance do Sistema
+* **O Cenário:** Transações ficam paradas em estado de espera (`WAIT`) aguardando a liberação de recursos críticos (como tabelas de estoque ou pedidos).  
+* **Causa Raiz:** Utilização de **Bloqueio Pessimista** (*Pessimistic Locking*) em um ambiente de alta latência. Transações longas retêm os recursos ("trancam" a tabela) enquanto aguardam a comunicação de rede, engarrafando todas as requisições seguintes na fila.
 
-Degradação do Throughput: O sistema processa menos vendas por segundo do que sua capacidade real, pois o banco de dados gasta recursos gerenciando filas de bloqueio em vez de efetivar transações.
+## **1.2. Impacto na Performance do Sistema**
 
-Alta Latência: O tempo de resposta para o cliente final aumenta drasticamente, resultando em timeouts e abandono de carrinho.
+A combinação das falhas acima gera os seguintes impactos operacionais:
 
-Esgotamento de Recursos: O acúmulo de transações pendentes consome todo o pool de conexões do banco, levando a erros de "Serviço Indisponível" (HTTP 503) e negação de serviço durante picos como a Black Friday.
+1.  **Degradação do Throughput** O sistema processa menos vendas por segundo do que sua capacidade real de hardware, pois o banco de dados gasta recursos gerenciando filas de bloqueio (*Lock Contention*) em vez de efetivar transações.  
+2.  **Alta Latência** O tempo de resposta para o cliente final aumenta drasticamente, resultando em *timeouts* de aplicação e abandono de carrinho de compras.  
+3.  **Esgotamento de Recursos** O acúmulo de transações pendentes consome todo o *pool* de conexões do banco de dados, levando a erros de **"Serviço Indisponível" (HTTP 503\)** e negação de serviço durante picos de acesso (Black Friday).
+
