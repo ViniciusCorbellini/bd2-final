@@ -2,6 +2,8 @@
 
 # **1\. Análise de Problemas de Concorrência**
 
+# **1\. Análise de Problemas de Concorrência**
+
 ## **1.1. Cenários de Conflito e Causas Raiz**
 
 ###  **Inconsistência de Dados (Race Conditions)**
