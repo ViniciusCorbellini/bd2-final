@@ -12,11 +12,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # CONFIGURAÇÃO DE CONEXÃO 
-DB_URI = os.getenv("DATABASE_URL")
+DB_URI = os.getenv("SUPABASE_DATABASE_URL")
 
 # Verificação de segurança simples
 if not DB_URI:
-    raise ValueError("Erro: A variável DATABASE_URL não foi encontrada no arquivo .env")
+    raise ValueError("Erro: A variável SUPABASE_DATABASE_URL não foi encontrada no arquivo .env")
 # =======================================
 
 
