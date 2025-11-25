@@ -2,11 +2,10 @@ TODO b2-final
 
 PYTHON:
     - migrar pra pg
-    - consumir env do supabase
+    - (testar) consumir env do supabase
 
 BANCO:
     - testar: UUID pra evitar duplicatas
     - criar entidades separadas (normalização)
 
 SUPABASE:
-    
