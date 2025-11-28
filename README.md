@@ -26,12 +26,14 @@ Certifique-se de ter o Python instalado e um banco PostgreSQL rodando.
 Se estiver usando Docker (recomendado), suba o banco:
 
 Bash
+`
 docker run --name pg-ecommerce \
   -e POSTGRES_USER=admin \
   -e POSTGRES_PASSWORD=minhasenha123 \
   -e POSTGRES_DB=meu_ecommerce \
   -p 5432:5432 \
   -d postgres
+`
 
 ## 2. Configuração do Ambiente
 Clone este repositório ou baixe os arquivos.
@@ -39,7 +41,7 @@ Clone este repositório ou baixe os arquivos.
 Crie um ambiente virtual (opcional, mas recomendado):
 
 Bash
-python -m venv venv
+`python -m venv venv`
 
 # Windows
 venv\Scripts\activate
@@ -48,7 +50,7 @@ source venv/bin/activate
 Instale as dependências:
 
 Bash
-pip install psycopg2-binary python-dotenv
+`pip install psycopg2-binary python-dotenv`
 
 ## 3. Configuração de Credenciais (.env)
 Crie um arquivo chamado .env na raiz do projeto e configure conforme seu banco de dados.
@@ -70,7 +72,7 @@ Certifique-se de que o arquivo init.sql está na mesma pasta. O script Python ir
 Execute o script principal:
 
 Bash
-app.py
+`app.py`
 
 ## 📊 Entendendo os Resultados
 O script executará 4 baterias de testes. Ao final de cada uma, ele exibirá um relatório.
