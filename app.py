@@ -5,88 +5,84 @@ import queue
 import random
 import uuid # Biblioteca para gerar IDs únicos universais
 import os
-from psycopg2 import sql
+
 from dotenv import load_dotenv 
 
 # ========== consumindo o .env ==========
 load_dotenv()
-
-# CONFIGURAÇÃO DE CONEXÃO 
-DB_URI = os.getenv("SUPABASE_DATABASE_URL")
-
-# Verificação de segurança simples
-if not DB_URI:
-    raise ValueError("Erro: A variável SUPABASE_DATABASE_URL não foi encontrada no arquivo .env")
 # =======================================
 
+# CONFIGURAÇÃO DE CONEXÃO 
+DB_URI = os.getenv("DATABASE_URL")
 
-# --- conexão  ---
 def get_db_connection():
-    # O psycopg2 é inteligente o suficiente para ler a URI completa
-    return psycopg2.connect(DB_URI)
+    # Pega a URL definida no docker-compose.yml
+    db_url = os.getenv("DATABASE_URL")
+    
+    if not db_url:
+        raise ValueError("A variável DATABASE_URL não está definida!")
+
+    print(f"🔌 Tentando conectar em: {db_url}...")
+    
+    # Loop simples de retentativa, caso o banco demore milissegundos a mais
+    for i in range(5):
+        try:
+            conn = psycopg2.connect(db_url)
+            return conn
+        except psycopg2.OperationalError as e:
+            print(f"⏳ Banco ainda indisponível, tentando novamente ({i+1}/5)...")
+            time.sleep(20)
+    
+    raise Exception("❌ Não foi possível conectar ao banco após várias tentativas.")
 
 fila_pedidos = queue.Queue()
 
-def setup_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Limpeza (Cuidado em produção!)
-    cursor.execute('DROP TABLE IF EXISTS produtos')
-    cursor.execute('DROP TABLE IF EXISTS historico_transacoes')
-
-    # Criação das tabelas (Sintaxe Postgres)
-    cursor.execute('CREATE TABLE produtos (id SERIAL PRIMARY KEY, estoque INTEGER)')
-
-    cursor.execute('''
-        CREATE TABLE historico_transacoes (
-            transaction_id TEXT PRIMARY KEY,
-            cliente_id INTEGER,
-            status TEXT,
-            data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    cursor.execute("INSERT INTO produtos (id, estoque) VALUES (1, 5)")
-    conn.commit()
-    conn.close()
-    print("✅ [SETUP] Banco Supabase configurado.")
-
-# --- A STORED PROCEDURE INTELIGENTE ---
+# --- A STORED PROCEDURE INTELIGENTE (ADAPTADA AO NOVO SQL) ---
 def stored_procedure_segura(cliente_id, transaction_id):
-    # Cada thread abre sua própria conexão (Importante para concorrência!)
     conn = get_db_connection()
     cursor = conn.cursor()
     
     try:
-        # 1. VERIFICAÇÃO DE IDEMPOTÊNCIA
-        # Tenta inserir o "Crachá" da transação.
+        # 1. VERIFICAÇÃO DE IDEMPOTÊNCIA (Adaptação para tabela 'pedidos')
         try:
+            # Mapeamento: transaction_id -> chave_idempotencia
+            # Assumindo sempre produto 1 e quantidade 1 para este teste
             cursor.execute(
-                "INSERT INTO historico_transacoes (transaction_id, cliente_id, status) VALUES (%s, %s, 'PROCESSANDO')",
+                """
+                INSERT INTO pedidos 
+                (chave_idempotencia, cliente_id, id_produto, quantidade, status) 
+                VALUES (%s, %s, 1, 1, 'PROCESSANDO')
+                """,
                 (transaction_id, cliente_id)
             )
         except psycopg2.IntegrityError:
-            # ID duplicado detectado
-            conn.rollback() # Limpa o erro da transação atual
-            print(f"⚠️ [DB] Bloqueio: Transação {transaction_id[:8]}... duplicada!")
+            conn.rollback()
+            print(f"⚠️ [DB] Bloqueio: Pedido duplicado detectado (UUID: {transaction_id})!")
             return
 
-        # 2. BLOQUEIO DE LINHA (A Mágica do Postgres)
-        # 'FOR UPDATE' trava APENAS a linha do produto id=1 até o commit/rollback.
-        # Outras threads que tentarem ler essa linha vão esperar na fila aqui.
+        # 2. BLOQUEIO DE LINHA (FOR UPDATE)
         cursor.execute("SELECT estoque FROM produtos WHERE id = 1 FOR UPDATE")
         resultado = cursor.fetchone()
         
         if resultado:
             estoque = resultado[0]
             if estoque > 0:
+                # Decrementa estoque
                 cursor.execute("UPDATE produtos SET estoque = estoque - 1 WHERE id = 1")
-                cursor.execute("UPDATE historico_transacoes SET status = 'SUCESSO' WHERE transaction_id = %s", (transaction_id,))
+                
+                # Atualiza status na tabela 'pedidos'
+                cursor.execute(
+                    "UPDATE pedidos SET status = 'SUCESSO' WHERE chave_idempotencia = %s", 
+                    (transaction_id,)
+                )
                 conn.commit()
                 print(f"✅ [DB] Venda Aprovada. Cliente {cliente_id}.")
             else:
-                cursor.execute("UPDATE historico_transacoes SET status = 'FALHA_SEM_ESTOQUE' WHERE transaction_id = %s", (transaction_id,))
+                # Falha por sem estoque
+                cursor.execute(
+                    "UPDATE pedidos SET status = 'FALHA_SEM_ESTOQUE' WHERE chave_idempotencia = %s", 
+                    (transaction_id,)
+                )
                 conn.commit()
                 print(f"🚫 [DB] Sem estoque. Cliente {cliente_id}.")
         
@@ -97,14 +93,14 @@ def stored_procedure_segura(cliente_id, transaction_id):
         cursor.close()
         conn.close()
 
-# --- API (BACKEND) ---
+# --- API (SIMULAÇÃO) ---
 def api_receber_pedido(cliente_id):
     transacao_unica_id = str(uuid.uuid4())
     pacote = { "cliente_id": cliente_id, "transaction_id": transacao_unica_id }
     fila_pedidos.put(pacote)
 
-    # Simula clique duplo (30% de chance)
-    if random.random() < 0.3:
+    # Simula clique duplo (Retry acidental do frontend)
+    if random.random() < 0.7:
         print(f"⚡ [API] Cliente {cliente_id} clicou 2x! Enviando duplicata...")
         fila_pedidos.put(pacote)
 
@@ -112,47 +108,65 @@ def api_receber_pedido(cliente_id):
 def worker_backend(i):
     while True:
         try:
-            pacote = fila_pedidos.get(timeout=3) # Timeout maior por causa da latência de rede
+            pacote = fila_pedidos.get(timeout=3)
         except queue.Empty:
             break
         
-        # Processa
         stored_procedure_segura(pacote["cliente_id"], pacote["transaction_id"])
         fila_pedidos.task_done()
 
 # --- EXECUÇÃO ---
 def rodar():
-    print("\n--- INICIANDO SISTEMA COM SUPABASE (POSTGRES) ---")
-    setup_db()
+    print("\n--- INICIANDO SISTEMA DE PEDIDOS (IDEMPOTENTE) ---")
+    
+    # Aguarda o banco acordar (caso o container esteja subindo agora)
+    time.sleep(5) 
 
     threads = []
-    # Cria pedidos
-    for i in range(10):
+    # 1. Gera carga de pedidos (15 pedidos para 10 itens de estoque)
+    for i in range(15):
         t = threading.Thread(target=api_receber_pedido, args=(i,))
         threads.append(t)
         t.start()
     for t in threads: t.join()
 
-    # Workers processam
+    # 2. Processa com Workers
     workers = []
-    for i in range(4): # Aumentei para 4 workers para testar mais concorrência
+    for i in range(4):
         t = threading.Thread(target=worker_backend, args=(i,))
         workers.append(t)
         t.start()
     for t in workers: t.join()
 
-    # Auditoria Final
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT count(*) FROM historico_transacoes WHERE status='SUCESSO'")
-    sucessos = cursor.fetchone()[0]
-    cursor.execute("SELECT estoque FROM produtos WHERE id=1")
-    estoque = cursor.fetchone()[0]
-    
-    print("\n--- RESULTADO FINAL SUPABASE ---")
-    print(f"Vendas Reais: {sucessos}")
-    print(f"Estoque Final: {estoque}")
-    conn.close()
+    # 3. Auditoria Final
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Conta sucessos na tabela 'pedidos'
+        cursor.execute("SELECT count(*) FROM pedidos WHERE status='SUCESSO'")
+        vendas = cursor.fetchone()[0]
+        
+        # Verifica estoque restante
+        cursor.execute("SELECT estoque FROM produtos WHERE id=1")
+        estoque = cursor.fetchone()[0]
+        
+        print("\n" + "="*40)
+        print("RELATÓRIO FINAL DE CONSISTÊNCIA")
+        print("="*40)
+        print(f"📦 Estoque Inicial: 10") # Sabemos que o init.sql insere 10
+        print(f"💰 Vendas Realizadas: {vendas}")
+        print(f"📉 Estoque Final no DB: {estoque}")
+        print("-" * 40)
+        
+        if vendas + estoque == 10:
+            print("✅ SUCESSO: A soma bate perfeitamente! (Consistência ACID)")
+        else:
+            print("❌ PERIGO: O dinheiro sumiu ou o estoque multiplicou!")
+            
+        conn.close()
+    except Exception as e:
+        print(f"Erro na auditoria: {e}")
 
 if __name__ == "__main__":
     rodar()
