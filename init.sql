@@ -23,5 +23,5 @@ CREATE TABLE pedidos (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Inserindo um produto com APENAS 5 unidades
+-- Inserindo um produto com 10 unidades
 INSERT INTO produtos (id, nome, estoque) VALUES (1, 'Samsung Galaxy A56 256 Gb', 10);
