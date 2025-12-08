@@ -1,5 +1,4 @@
 services:
-  # Serviço do Banco de Dados
   db:
     image: postgres:15-alpine
     container_name: bd-final
@@ -9,11 +8,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     volumes:
-      # O PULO DO GATO: Mapeia seu init.sql local para a pasta especial do Postgres
-      # Qualquer .sql aqui roda automaticamente na primeira vez que o banco é criado
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      
-      # Persistência de dados (para não perder dados ao desligar)
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
@@ -23,15 +18,16 @@ services:
       timeout: 5s
       retries: 5
 
-  # Serviço do Backend Python
   backend:
     build: .
     container_name: app
     depends_on:
       db:
         condition: service_healthy 
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/postgres
     volumes:
-      - .:/app # Hot-reload: suas alterações de código refletem na hora (opcional)
+      - .:/app
 
 volumes:
   postgres_data:
